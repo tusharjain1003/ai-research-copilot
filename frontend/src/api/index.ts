@@ -5,6 +5,8 @@ import type {
   RunStartResponse,
   WorkflowStatusResponse,
   Report,
+  ChatHistoryResponse,
+  ChatMessage,
 } from "../types";
 
 const BASE = "/api";
@@ -61,5 +63,16 @@ export const api = {
 
   getReport(sessionId: string): Promise<Report> {
     return request(`/sessions/${sessionId}/report`);
+  },
+
+  getChatMessages(sessionId: string): Promise<ChatHistoryResponse> {
+    return request(`/sessions/${sessionId}/chat`);
+  },
+
+  sendMessage(sessionId: string, message: string): Promise<ChatMessage> {
+    return request(`/sessions/${sessionId}/chat`, {
+      method: "POST",
+      body: JSON.stringify({ message }),
+    });
   },
 };

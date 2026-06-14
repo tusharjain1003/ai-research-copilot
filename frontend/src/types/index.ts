@@ -48,6 +48,17 @@ export interface RunStartResponse {
   status: string;
 }
 
+export interface ChatMessage {
+  id: string;
+  role: string;
+  content: string;
+  created_at: string;
+}
+
+export interface ChatHistoryResponse {
+  messages: ChatMessage[];
+}
+
 export interface Report {
   company_overview: string;
   products_services: string;
