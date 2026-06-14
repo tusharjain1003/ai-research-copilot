@@ -64,7 +64,7 @@ def build_research_graph() -> StateGraph:
         },
     )
 
-    graph.add_edge("enrich_unknowns", "analysis")
+    graph.add_edge("enrich_unknowns", "quality_check")
 
     graph.add_edge("report_generation", END)
     graph.add_edge("failure_handler", END)

@@ -22,6 +22,7 @@ function SessionDetail() {
 
   const [report, setReport] = useState<Report | null>(null);
   const [reportLoading, setReportLoading] = useState(true);
+  const [wfError, setWfError] = useState<string | null>(null);
 
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const wfRef = useRef(wfState);
@@ -48,8 +49,14 @@ function SessionDetail() {
     try {
       const wf = await api.getWorkflowStatus(id);
       setWfState(wf);
+      setWfError(null);
       return wf;
-    } catch {
+    } catch (e) {
+      if (e instanceof ApiError) {
+        setWfError(`Failed to load workflow: ${e.message}`);
+      } else {
+        setWfError("Failed to load workflow status.");
+      }
       return null;
     }
   }, [id]);
@@ -137,6 +144,8 @@ function SessionDetail() {
   const isActive = runStatus ? STATUS_ACTIVE.has(runStatus) : false;
   const showReport = report && !reportLoading && !isActive;
   const showChat = !isActive && runStatus === "completed" && report !== null;
+  const canRunAgain = !isActive && (runStatus === "completed" || runStatus === "failed");
+  const failedStep = wfState?.steps?.find((s) => s.status === "failed");
 
   return (
     <div className="page page-detail">
@@ -152,12 +161,32 @@ function SessionDetail() {
 
       <section className="detail-section">
         <h2>Research Workflow</h2>
+        {wfError && <div className="error workflow-error">{wfError}</div>}
+
+        {runStatus === "failed" && failedStep && (
+          <div className="error workflow-error" style={{ marginBottom: "1rem" }}>
+            <strong>Workflow Failed</strong> — Node: <code>{failedStep.node_name}</code>.
+            Reason: {failedStep.error_message}.
+            {failedStep.updated_at && (
+              <span> Timestamp: {new Date(failedStep.updated_at).toLocaleString()}.</span>
+            )}
+          </div>
+        )}
+
         <WorkflowProgress
           run={wfState?.run ?? null}
           steps={wfState?.steps ?? []}
           onStart={handleStart}
           starting={starting}
         />
+
+        {canRunAgain && (
+          <div style={{ marginTop: "1rem" }}>
+            <button className="btn btn-primary" onClick={handleStart} disabled={starting}>
+              {starting ? "Starting…" : "Run Research Again"}
+            </button>
+          </div>
+        )}
       </section>
 
       {showReport && (

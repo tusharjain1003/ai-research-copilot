@@ -261,6 +261,11 @@ function EnrichmentNode({ step }: { step: WorkflowStep }) {
                 {formatTime(step.created_at)}
               </span>
             )}
+            {step.created_at && step.updated_at && status !== "running" && status !== "pending" && (
+              <span className="timeline-node-duration">
+                {calcDuration(step.created_at, step.updated_at)}
+              </span>
+            )}
           </div>
         </div>
         {step.error_message && (

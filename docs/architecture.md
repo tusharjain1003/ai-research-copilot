@@ -98,7 +98,7 @@ The shared state typed as `GraphState` (a `TypedDict`) flows through all nodes:
 | `source_metadata` | `list` | Fetch metadata (URL, status, timestamps) |
 | `analysis_output` | `dict` | Structured analysis (overview, products, customers, signals) |
 | `risks_and_unknowns` | `dict` | Risks, unknowns, unsupported claims, confidence notes |
-| `quality_result` | `dict` | Pass/fail, source length, missing sections, enrich retries |
+| `quality_result` | `dict` | Pass/fail, research_quality_score (0–100), confidence, source length, missing sections, enrich retries |
 | `final_report` | `dict` | Complete 9-section report |
 | `warnings` | `list[str]` | Accumulated non-fatal warnings |
 | `errors` | `list[str]` | Accumulated error messages |
@@ -114,9 +114,9 @@ The shared state typed as `GraphState` (a `TypedDict`) flows through all nodes:
 
 4. **risk_unknowns** — Calls `RiskUnknownsService.identify()` via LLM to identify risks, unknowns, unsupported claims, and confidence notes. Same empty-source bypass as analysis. Writes to `state["risks_and_unknowns"]`.
 
-5. **quality_check** — Rule-based (no LLM). Checks: source text length ≥ 500, all 4 analysis sections non-empty, unknowns non-empty. Returns `passed`, `source_length`, `missing_sections`, and `enrich_retries` counter. Writes to `state["quality_result"]`.
+5. **quality_check** — Rule-based (no LLM). Checks: source text length ≥ 500, all 4 analysis sections non-empty, unknowns non-empty. Computes a deterministic `research_quality_score` (0–100) from source coverage, section completeness, and unknown count, plus a `confidence` label (low/medium/high). Returns `passed`, `research_quality_score`, `confidence`, `source_length`, `missing_sections`, and `enrich_retries` counter. Writes to `state["quality_result"]`.
 
-6. **enrich_unknowns** — LLM-based enrichment targeting missing analysis sections. Increments `enrich_retries`. Only runs if quality check failed and retries remain. Returns updated `analysis_output`.
+6. **enrich_unknowns** — Deterministic gap analysis (no LLM). Reads `quality_result.missing_sections` and generates structured gap entries (`research_gap`, `why_missing`, `recommended_source`, `confidence`) for each missing section. Increments `enrich_retries`. Only runs if quality check failed and retries remain. Writes enriched items to `state["risks_and_unknowns"]["enriched_items"]`.
 
 7. **report_generation** — Calls `ReportGenerationService` (deterministic, no LLM). Builds all 9 report sections from accumulated state. Persists via `persist_report()`. Writes to `state["final_report"]`.
 
@@ -146,7 +146,8 @@ The background worker in `WorkflowService._execute_workflow()` creates its own D
 
 ## Recoverability
 
-- **Enrichment loop**: Up to 1 retry when quality check fails. If enrichment still doesn't produce enough content, the workflow proceeds to report generation with available data.
+- **Enrichment loop**: Up to 1 retry when quality check fails. `enrich_unknowns` generates per-section gap entries for all missing analysis sections using deterministic templates. After enrichment, the workflow runs quality_check again. If still insufficient, it proceeds to report generation with available data.
+- **Quality scoring**: Each quality_check run computes a `research_quality_score` (0–100) and `confidence` label from source coverage, section completeness, and unknown count. The score is exposed in the API response and UI.
 - **Empty source bypass**: If website fetching fails, `source_text` is empty, and downstream LLM nodes (analysis, risk_unknowns) skip their LLM calls and return defaults. The quality check will flag missing sections but the workflow completes.
 - **Graceful degradation**: Missing or broken data propagates as warnings, not crashes. The report always produces output with "Information not available" for missing sections.
 - **Daemon thread isolation**: Background threads use their own DB sessions. An exception in one session's workflow does not affect others.

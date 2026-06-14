@@ -146,4 +146,191 @@ def test_workflow_conflict(client: TestClient):
         assert "active" in resp2.json()["detail"].lower()
 
 
+def _seed_run(db_session, session_id: str) -> str:
+    """Create a pending WorkflowRun and return its id."""
+    from app.models.workflow import WorkflowRun
+    from app.models.enums import WorkflowRunStatus
+    run = WorkflowRun(
+        session_id=session_id,
+        status=WorkflowRunStatus.pending,
+    )
+    db_session.add(run)
+    db_session.commit()
+    db_session.refresh(run)
+    return run.id
+
+
+def test_quality_check_scoring(db_session, client):
+    from app.workflow.nodes import quality_check
+    from app.models.session import ResearchSession
+    from app.models.enums import SessionStatus
+    import uuid
+
+    session = ResearchSession(
+        id=str(uuid.uuid4()),
+        company_name="Score Test",
+        website="https://example.com",
+        research_objective="Test scoring",
+        status=SessionStatus.draft,
+    )
+    db_session.add(session)
+    db_session.commit()
+    _seed_run(db_session, session.id)
+
+    state = {
+        "session_id": session.id,
+        "company_name": "Score Test",
+        "website_url": "https://example.com",
+        "research_objective": "Test scoring",
+        "plan": {},
+        "source_text": "x" * 2000,
+        "source_metadata": [],
+        "analysis_output": {
+            "company_overview": "Overview",
+            "products_and_services": "Products",
+            "target_customers": "Customers",
+            "business_signals": "Signals",
+        },
+        "risks_and_unknowns": {"unknowns": ["gap1", "gap2", "gap3"]},
+        "quality_result": {},
+        "final_report": {},
+        "warnings": [],
+        "errors": [],
+        "workflow_status": "running",
+    }
+
+    result = quality_check(state)
+    qr = result.get("quality_result", {})
+
+    assert "research_quality_score" in qr, "Missing research_quality_score"
+    assert "confidence" in qr, "Missing confidence"
+    assert qr["passed"] is True
+    assert qr["missing_sections"] == []
+    # source_coverage: 2000/2000*40=40, completeness: (1-0/5)*40=40, unknowns: 3/5*20=12 → total 92
+    assert qr["research_quality_score"] == 92, f"Expected 92, got {qr['research_quality_score']}"
+    assert qr["confidence"] == "high"
+
+
+def test_quality_check_scoring_low_quality(db_session, client):
+    from app.workflow.nodes import quality_check
+    from app.models.session import ResearchSession
+    from app.models.enums import SessionStatus
+    import uuid
+
+    session = ResearchSession(
+        id=str(uuid.uuid4()),
+        company_name="Low Quality",
+        website="https://example.com",
+        research_objective="Test low quality",
+        status=SessionStatus.draft,
+    )
+    db_session.add(session)
+    db_session.commit()
+    _seed_run(db_session, session.id)
+
+    state = {
+        "session_id": session.id,
+        "company_name": "Low Quality",
+        "website_url": "https://example.com",
+        "research_objective": "Test low quality",
+        "plan": {},
+        "source_text": "short",
+        "source_metadata": [],
+        "analysis_output": {},
+        "risks_and_unknowns": {"unknowns": []},
+        "quality_result": {},
+        "final_report": {},
+        "warnings": [],
+        "errors": [],
+        "workflow_status": "running",
+    }
+
+    result = quality_check(state)
+    qr = result.get("quality_result", {})
+
+    assert qr["passed"] is False
+    assert len(qr["missing_sections"]) == 5
+    assert qr["confidence"] == "low"
+    # source_coverage: 5/2000*40=0.1, completeness: (1-5/5)*40=0, unknowns: 0/5*20=0 → total ~0
+    assert qr["research_quality_score"] == 0
+
+
+def test_enrich_unknowns_generates_gaps(db_session, client):
+    from app.workflow.nodes import enrich_unknowns
+    from app.models.session import ResearchSession
+    from app.models.enums import SessionStatus
+    import uuid
+
+    session = ResearchSession(
+        id=str(uuid.uuid4()),
+        company_name="Gap Test",
+        website="https://example.com",
+        research_objective="Test gaps",
+        status=SessionStatus.draft,
+    )
+    db_session.add(session)
+    db_session.commit()
+    _seed_run(db_session, session.id)
+
+    state = {
+        "session_id": session.id,
+        "company_name": "Gap Test",
+        "website_url": "https://example.com",
+        "research_objective": "Test gaps",
+        "plan": {},
+        "source_text": "",
+        "source_metadata": [],
+        "analysis_output": {},
+        "risks_and_unknowns": {"unknowns": []},
+        "quality_result": {
+            "passed": False,
+            "missing_sections": ["company_overview", "products_and_services"],
+            "enrich_retries": 0,
+        },
+        "final_report": {},
+        "warnings": [],
+        "errors": [],
+        "workflow_status": "running",
+    }
+
+    result = enrich_unknowns(state)
+    ru = result.get("risks_and_unknowns", {})
+    enriched_items = ru.get("enriched_items", [])
+
+    assert len(enriched_items) == 2, f"Expected 2 enriched items, got {len(enriched_items)}"
+
+    sections_found = {item["section"] for item in enriched_items}
+    assert "company_overview" in sections_found
+    assert "products_and_services" in sections_found
+
+    for item in enriched_items:
+        assert "research_gap" in item
+        assert "why_missing" in item
+        assert "recommended_source" in item
+        assert item["confidence"] == "low"
+
+    assert result["quality_result"]["enrich_retries"] == 1
+    assert len(result["warnings"]) == 1
+
+
+def test_enrich_loop_routes_to_quality_check():
+    from app.workflow.graph import build_research_graph
+
+    g = build_research_graph()
+    enrich_edges = [(s, e) for s, e in g.edges if s == "enrich_unknowns"]
+    assert len(enrich_edges) == 1, f"Expected 1 edge from enrich_unknowns, got {len(enrich_edges)}"
+    assert enrich_edges[0] == ("enrich_unknowns", "quality_check"), (
+        f"enrich_unknowns should route to quality_check, got {enrich_edges[0]}"
+    )
+
+    # Verify quality_check has conditional edges to enrich_unknowns
+    assert "quality_check" in g.branches, "quality_check should have conditional branches"
+    branch = g.branches["quality_check"]["route_after_quality"]
+    assert branch.ends.get("enrich") == "enrich_unknowns", (
+        "quality_check 'enrich' path should go to enrich_unknowns"
+    )
+    assert branch.ends.get("sufficient") == "report_generation"
+    assert branch.ends.get("errors") == "failure_handler"
+
+
 

@@ -137,3 +137,99 @@ def test_create_session_rejects_invalid_scheme(client):
     assert resp.status_code == 422
     body = resp.json()
     assert "scheme" in str(body).lower()
+
+
+def _mock_http_response(status_code, text="", headers=None, url="https://93.184.216.34"):
+    from unittest.mock import MagicMock
+    mock = MagicMock()
+    mock.status_code = status_code
+    mock.headers = headers or {}
+    mock.text = text
+    mock.url = url
+    mock.raise_for_status = MagicMock()
+    if status_code >= 400:
+        from httpx import HTTPStatusError
+        mock.raise_for_status.side_effect = HTTPStatusError(
+            f"HTTP {status_code}", request=MagicMock(), response=mock
+        )
+    return mock
+
+
+def test_ssrf_redirect_to_localhost():
+    """Public URL redirecting to localhost should be rejected."""
+    from app.services.source_collection import SourceCollectionService
+    from unittest.mock import patch
+
+    with patch("app.services.source_collection.httpx.get") as mock_get:
+        mock_get.return_value = _mock_http_response(
+            302, headers={"Location": "http://127.0.0.1/admin"},
+            url="https://93.184.216.34",
+        )
+        result = SourceCollectionService.fetch_and_extract(
+            session_id="test-session",
+            website_url="https://93.184.216.34",
+        )
+        assert result.source_text == ""
+        assert "website_fetch_failed" in result.errors
+
+
+def test_ssrf_redirect_to_metadata():
+    """Public URL redirecting to 169.254.169.254 should be rejected."""
+    from app.services.source_collection import SourceCollectionService
+    from unittest.mock import patch
+
+    with patch("app.services.source_collection.httpx.get") as mock_get:
+        mock_get.return_value = _mock_http_response(
+            302, headers={"Location": "http://169.254.169.254/latest/meta-data/"},
+            url="https://93.184.216.34",
+        )
+        result = SourceCollectionService.fetch_and_extract(
+            session_id="test-session",
+            website_url="https://93.184.216.34",
+        )
+        assert result.source_text == ""
+        assert "website_fetch_failed" in result.errors
+
+
+def test_ssrf_redirect_to_private():
+    """Public URL redirecting to RFC1918 private address should be rejected."""
+    from app.services.source_collection import SourceCollectionService
+    from unittest.mock import patch
+
+    with patch("app.services.source_collection.httpx.get") as mock_get:
+        mock_get.return_value = _mock_http_response(
+            302, headers={"Location": "http://192.168.1.1/admin"},
+            url="https://93.184.216.34",
+        )
+        result = SourceCollectionService.fetch_and_extract(
+            session_id="test-session",
+            website_url="https://93.184.216.34",
+        )
+        assert result.source_text == ""
+        assert "website_fetch_failed" in result.errors
+
+
+def test_ssrf_safe_redirect_chain(db_session):
+    """Public URL redirecting to another public URL should succeed."""
+    from app.services.source_collection import SourceCollectionService
+    from unittest.mock import patch
+
+    with patch("app.services.source_collection.httpx.get") as mock_get:
+        mock_get.side_effect = [
+            _mock_http_response(
+                302, headers={"Location": "https://93.184.216.34/page"},
+                url="https://93.184.216.34",
+            ),
+            _mock_http_response(
+                200, text="<html><body>Safe content</body></html>",
+                headers={},
+                url="https://93.184.216.34/page",
+            ),
+        ]
+        result = SourceCollectionService.fetch_and_extract(
+            session_id="test-session",
+            website_url="https://93.184.216.34",
+        )
+        assert result.source_text != ""
+        assert "Safe content" in result.source_text
+        assert result.errors == []

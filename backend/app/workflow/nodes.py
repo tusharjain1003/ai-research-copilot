@@ -174,8 +174,27 @@ def quality_check(state: GraphState) -> dict:
         previous_quality = state.get("quality_result", {})
         enrich_retries = previous_quality.get("enrich_retries", 0)
 
+        # Deterministic quality scoring
+        source_coverage_score = min(source_length / 2000, 1.0) * 40
+        completeness_score = (1 - len(missing_sections) / 5) * 40
+        unknowns = risks.get("unknowns", [])
+        unknown_quality_score = min(len(unknowns), 5) / 5 * 20
+
+        research_quality_score = round(
+            source_coverage_score + completeness_score + unknown_quality_score
+        )
+
+        if research_quality_score >= 80:
+            confidence = "high"
+        elif research_quality_score >= 50:
+            confidence = "medium"
+        else:
+            confidence = "low"
+
         quality_result = {
             "passed": passed,
+            "research_quality_score": research_quality_score,
+            "confidence": confidence,
             "source_length": source_length,
             "missing_sections": missing_sections,
             "enrich_retries": enrich_retries,
@@ -186,22 +205,59 @@ def quality_check(state: GraphState) -> dict:
     return _run_node(state, "quality_check", work)
 
 
+_SECTION_GAPS = {
+    "company_overview": {
+        "research_gap": "Company overview, founding story, mission, leadership, and organizational size",
+        "why_missing": "Not found or insufficiently covered in the source text",
+        "recommended_source": "Company About page, LinkedIn company profile, or Crunchbase",
+    },
+    "products_and_services": {
+        "research_gap": "Product catalog, service descriptions, features, pricing, and technology stack",
+        "why_missing": "Source text did not contain detailed product or service information",
+        "recommended_source": "Products/Services page, case studies, or G2/Capterra listings",
+    },
+    "target_customers": {
+        "research_gap": "Target customer segments, industries served, geographic presence, and buyer personas",
+        "why_missing": "Customer segmentation details were absent from the source text",
+        "recommended_source": "Customer stories, testimonials page, or industry reports",
+    },
+    "business_signals": {
+        "research_gap": "Recent news, growth indicators, partnerships, funding rounds, and hiring trends",
+        "why_missing": "No recent business signals found in the available source text",
+        "recommended_source": "Company blog, press releases, Crunchbase, or LinkedIn company page",
+    },
+    "unknowns": {
+        "research_gap": "Identified unknowns and information gaps requiring further investigation",
+        "why_missing": "Risk and unknowns analysis was incomplete or not generated",
+        "recommended_source": "Direct outreach to company representatives or industry analyst reports",
+    },
+}
+
+
 def enrich_unknowns(state: GraphState) -> dict:
     def work(state: GraphState) -> dict:
         current_retries = state["quality_result"].get("enrich_retries", 0)
         new_retries = current_retries + 1
 
+        missing_sections = state["quality_result"].get("missing_sections", [])
         enriched_unknowns = state.get("risks_and_unknowns", {}).copy()
-        new_additional_info = {
-            "unknown": "Exact revenue figures and growth rate",
-            "enrichment": (
-                f"Estimated based on industry benchmarks for {state['company_name']}'s segment. "
-                "Further direct inquiry required."
-            ),
-            "confidence": "low",
-        }
 
-        enriched_unknowns["enriched_items"] = [new_additional_info]
+        enriched_items = enriched_unknowns.get("enriched_items", [])
+        for section in missing_sections:
+            gap = _SECTION_GAPS.get(section, {
+                "research_gap": f"Missing information for {section}",
+                "why_missing": "Not available in source text",
+                "recommended_source": "Further research required",
+            })
+            enriched_items.append({
+                "section": section,
+                "research_gap": gap["research_gap"],
+                "why_missing": gap["why_missing"],
+                "recommended_source": gap["recommended_source"],
+                "confidence": "low",
+            })
+
+        enriched_unknowns["enriched_items"] = enriched_items
 
         warnings = list(state.get("warnings", []))
         warnings.append(

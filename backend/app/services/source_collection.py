@@ -3,6 +3,7 @@ import re
 from datetime import datetime, timezone
 from html import unescape as html_unescape
 from typing import Optional
+from urllib.parse import urljoin
 
 import httpx
 
@@ -14,6 +15,7 @@ logger = logging.getLogger(__name__)
 
 REQUEST_TIMEOUT = 15.0
 MAX_CONTENT_CHARS = 50000
+MAX_REDIRECTS = 5
 
 USER_AGENT = (
     "Mozilla/5.0 (compatible; AIResearchCopilot/1.0; "
@@ -26,6 +28,47 @@ BLOCK_TAGS = (
 )
 
 STRIP_TAGS = ["script", "style", "noscript", "svg", "nav", "footer", "header"]
+
+
+REDIRECT_STATUSES = {301, 302, 303, 307, 308}
+
+
+def _safe_fetch(
+    url: str,
+    timeout: float,
+    headers: dict,
+) -> httpx.Response:
+    for _ in range(MAX_REDIRECTS + 1):
+        response = httpx.get(
+            url,
+            follow_redirects=False,
+            timeout=timeout,
+            headers=headers,
+        )
+
+        if response.status_code in REDIRECT_STATUSES:
+            location = response.headers.get("Location")
+            if not location:
+                raise httpx.HTTPError(
+                    f"Redirect without Location header from {url}"
+                )
+
+            redirect_target = urljoin(str(response.url), location)
+
+            try:
+                validate_external_url(redirect_target)
+            except ValueError as e:
+                raise ValueError(
+                    f"Redirect target rejected ({redirect_target}): {e}"
+                )
+
+            url = redirect_target
+            continue
+
+        response.raise_for_status()
+        return response
+
+    raise httpx.HTTPError(f"Too many redirects (max {MAX_REDIRECTS})")
 
 
 class SourceCollectionResult:
@@ -60,13 +103,11 @@ class SourceCollectionService:
                     errors=["url_validation_failed"],
                 )
 
-            response = httpx.get(
+            response = _safe_fetch(
                 website_url,
-                follow_redirects=True,
                 timeout=REQUEST_TIMEOUT,
                 headers={"User-Agent": USER_AGENT},
             )
-            response.raise_for_status()
 
             html_content = response.text
             title = _extract_title(html_content)
