@@ -136,7 +136,7 @@ function SessionDetail() {
   const runStatus = wfState?.run?.status;
   const isActive = runStatus ? STATUS_ACTIVE.has(runStatus) : false;
   const showReport = report && !reportLoading && !isActive;
-  const showChat = !isActive && (runStatus === "completed" || runStatus === "failed");
+  const showChat = !isActive && runStatus === "completed" && report !== null;
 
   return (
     <div className="page page-detail">

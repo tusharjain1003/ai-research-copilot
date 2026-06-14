@@ -6,6 +6,7 @@ from typing import Optional
 
 import httpx
 
+from app.core.url_validation import validate_external_url
 from app.database.session import SessionLocal
 from app.models.source import ResearchSource
 
@@ -49,6 +50,16 @@ class SourceCollectionService:
         website_url: str,
     ) -> SourceCollectionResult:
         try:
+            try:
+                validate_external_url(website_url)
+            except ValueError as e:
+                return SourceCollectionResult(
+                    source_text="",
+                    source_metadata=[],
+                    warnings=[str(e)],
+                    errors=["url_validation_failed"],
+                )
+
             response = httpx.get(
                 website_url,
                 follow_redirects=True,

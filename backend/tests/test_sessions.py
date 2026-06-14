@@ -2,7 +2,7 @@ from fastapi.testclient import TestClient
 
 SESSION_DATA = {
     "company_name": "Acme Corp",
-    "website_url": "https://acme.example.com",
+    "website_url": "https://93.184.216.34",
     "research_objective": "Understand their product strategy",
 }
 
@@ -12,7 +12,7 @@ def test_create_session(client: TestClient):
     assert resp.status_code == 201
     body = resp.json()
     assert body["company_name"] == "Acme Corp"
-    assert body["website_url"] == "https://acme.example.com"
+    assert body["website_url"] == "https://93.184.216.34"
     assert body["research_objective"] == "Understand their product strategy"
     assert body["status"] == "draft"
     assert "id" in body
@@ -23,7 +23,7 @@ def test_list_sessions(client: TestClient):
     client.post("/api/sessions", json=SESSION_DATA)
     client.post("/api/sessions", json={
         "company_name": "Beta Inc",
-        "website_url": "https://beta.example.com",
+        "website_url": "https://93.184.216.34",
         "research_objective": "Competitive analysis",
     })
 
@@ -45,7 +45,7 @@ def test_get_session(client: TestClient):
     body = resp.json()
     assert body["id"] == session_id
     assert body["company_name"] == "Acme Corp"
-    assert body["website_url"] == "https://acme.example.com"
+    assert body["website_url"] == "https://93.184.216.34"
 
 
 def test_get_session_not_found(client: TestClient):

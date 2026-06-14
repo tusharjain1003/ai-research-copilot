@@ -6,7 +6,7 @@ from app.models.report import ResearchReport
 
 SESSION_DATA = {
     "company_name": "Workflow Corp",
-    "website_url": "https://workflow.example.com",
+    "website_url": "https://93.184.216.34",
     "research_objective": "Test workflow execution",
 }
 

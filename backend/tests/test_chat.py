@@ -7,7 +7,7 @@ from app.models.report import ResearchReport
 
 SESSION_DATA = {
     "company_name": "Chat Corp",
-    "website_url": "https://chat.example.com",
+    "website_url": "https://93.184.216.34",
     "research_objective": "Test chat",
 }
 
