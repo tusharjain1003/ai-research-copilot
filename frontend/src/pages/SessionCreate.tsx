@@ -14,6 +14,11 @@ function SessionCreate() {
     setError(null);
     try {
       const session = await api.createSession(data);
+      try {
+        await api.startRun(session.id);
+      } catch {
+        // Research failed to start; user can retry on the detail page.
+      }
       navigate(`/sessions/${session.id}`);
     } catch (e) {
       if (e instanceof ApiError) {

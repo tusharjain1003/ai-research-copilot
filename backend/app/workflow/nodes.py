@@ -94,8 +94,8 @@ def source_collection(state: GraphState) -> dict:
         return {
             "source_text": result.source_text,
             "source_metadata": result.source_metadata,
-            "warnings": list(state.get("warnings", [])) + result.warnings,
-            "errors": list(state.get("errors", [])) + result.errors,
+            "warnings": list(state.get("warnings", [])) + result.warnings + result.errors,
+            "errors": list(state.get("errors", [])),
         }
 
     return _run_node(state, "source_collection", work)

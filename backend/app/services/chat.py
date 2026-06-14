@@ -220,6 +220,20 @@ class ChatService:
     def send_message(db: DBSession, session_id: str, text: str) -> ChatMessageResponse:
         session = _get_or_404(db, session_id)
 
+        report = (
+            db.query(ResearchReport)
+            .filter(ResearchReport.session_id == session_id)
+            .first()
+        )
+        if not report:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=(
+                    f"Research report for session {session_id} is not yet available. "
+                    "Please wait for the workflow to complete."
+                ),
+            )
+
         user_msg = ChatMessage(
             session_id=session_id,
             role=MessageRole.user,
@@ -259,19 +273,16 @@ def _call_llm(context: str, history: list[dict[str, str]]) -> str:
 
     try:
         llm = LLMService()
-        response = llm.client.chat.completions.create(
-            model="gpt-4o-mini",
+        content = llm.chat_messages(
             messages=messages,
             temperature=0.2,
             max_tokens=1000,
         )
-        content = response.choices[0].message.content
-        if content is None or not content.strip():
+        if not content.strip():
             return UNSUPPORTED_RESPONSE
         return content.strip()
     except LLMConfigurationError:
-        logger.warning("LLM not configured for chat, returning unsupported response")
-        return UNSUPPORTED_RESPONSE
+        raise
     except LLMError:
         logger.exception("LLM call failed for follow-up chat")
         return UNSUPPORTED_RESPONSE

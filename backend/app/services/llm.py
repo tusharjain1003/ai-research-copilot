@@ -77,6 +77,30 @@ class LLMService:
 
         return content.strip()
 
+    def chat_messages(
+        self,
+        messages: list[dict],
+        temperature: float = 0.3,
+        max_tokens: int = 2000,
+    ) -> str:
+        kwargs = {
+            "model": settings.llm_model,
+            "messages": messages,
+            "temperature": temperature,
+            "max_tokens": max_tokens,
+        }
+        try:
+            response = self.client.chat.completions.create(**kwargs)
+        except APIError as e:
+            logger.exception("LLM API call failed")
+            raise LLMError(f"LLM API call failed: {e}") from e
+
+        content = response.choices[0].message.content
+        if content is None:
+            raise LLMInvalidResponseError("LLM returned empty response")
+
+        return content.strip()
+
     def chat_json(
         self,
         system_prompt: str,
