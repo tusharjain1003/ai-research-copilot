@@ -6,6 +6,11 @@ from urllib.parse import urlparse
 logger = logging.getLogger(__name__)
 
 ALLOWED_SCHEMES = {"http", "https"}
+NAT64_PREFIX = ipaddress.ip_network("64:ff9b::/96")
+
+
+def _is_nat64_address(ip: ipaddress.IPv6Address) -> bool:
+    return isinstance(ip, ipaddress.IPv6Address) and ip in NAT64_PREFIX
 
 
 def validate_external_url(url: str) -> str:
@@ -65,7 +70,7 @@ def validate_external_url(url: str) -> str:
                 f"URL resolves to a private address ({ip_str}). "
                 "External requests to private addresses are not allowed."
             )
-        if ip.is_reserved:
+        if ip.is_reserved and not _is_nat64_address(ip):
             raise ValueError(
                 f"URL resolves to a reserved address ({ip_str}). "
                 "External requests to reserved addresses are not allowed."

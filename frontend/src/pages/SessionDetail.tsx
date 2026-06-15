@@ -25,8 +25,6 @@ function SessionDetail() {
   const [wfError, setWfError] = useState<string | null>(null);
 
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const wfRef = useRef(wfState);
-  wfRef.current = wfState;
 
   const fetchSession = useCallback(async () => {
     if (!id) return;
@@ -101,13 +99,12 @@ function SessionDetail() {
   }, [fetchWorkflow, fetchReport, stopPolling]);
 
   useEffect(() => {
-    const current = wfRef.current;
-    const isActive = current?.run?.status ? STATUS_ACTIVE.has(current.run.status) : false;
+    const isActive = wfState?.run?.status ? STATUS_ACTIVE.has(wfState.run.status) : false;
     if (isActive) {
       startPolling();
     }
     return stopPolling;
-  }, [startPolling, stopPolling]);
+  }, [wfState, startPolling, stopPolling]);
 
   const handleStart = async () => {
     if (!id) return;

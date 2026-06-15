@@ -25,10 +25,14 @@ async function request<T>(url: string, options?: RequestInit): Promise<T> {
     ...options,
   });
   if (!res.ok) {
-    let detail = res.statusText;
+    let detail: string = res.statusText;
     try {
       const body = await res.json();
-      if (body?.detail) detail = body.detail;
+      if (body?.detail) {
+        detail = Array.isArray(body.detail)
+          ? body.detail.map((d: { msg: string }) => d.msg).join("; ")
+          : body.detail;
+      }
     } catch {
       // ignore parse failure
     }
