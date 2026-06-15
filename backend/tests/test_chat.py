@@ -150,8 +150,27 @@ def test_chat_no_report_returns_409(client: TestClient, db_session):
     assert "not yet available" in resp.json()["detail"].lower()
 
 
-def test_chat_llm_not_configured_returns_503(client: TestClient, db_session):
+def test_chat_rejects_during_active_run(client: TestClient, db_session):
+    session_id = _create_session(client)
+    _create_report(db_session, session_id)
+
+    from app.models.workflow import WorkflowRun
+    from app.models.enums import WorkflowRunStatus
+    run = WorkflowRun(session_id=session_id, status=WorkflowRunStatus.pending)
+    db_session.add(run)
+    db_session.commit()
+
+    resp = client.post(
+        f"/api/sessions/{session_id}/chat",
+        json={"message": "Any question"},
+    )
+    assert resp.status_code == 409
+    assert "currently running" in resp.json()["detail"].lower()
+
+
+def test_chat_llm_not_configured_returns_503(monkeypatch, client: TestClient, db_session):
     """When no LLM API key is configured, chat should return 503."""
+    monkeypatch.setattr("app.core.config.settings.llm_api_key", "")
     session_id = _create_session(client)
     _create_report(db_session, session_id)
 

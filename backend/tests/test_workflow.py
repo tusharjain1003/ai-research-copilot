@@ -160,6 +160,24 @@ def _seed_run(db_session, session_id: str) -> str:
     return run.id
 
 
+def test_report_rejects_during_active_run(client: TestClient, db_session):
+    session_id = _create_session(client)
+
+    from app.models.report import ResearchReport
+    r = ResearchReport(session_id=session_id, company_overview="Overview")
+    db_session.add(r)
+
+    from app.models.workflow import WorkflowRun
+    from app.models.enums import WorkflowRunStatus
+    run = WorkflowRun(session_id=session_id, status=WorkflowRunStatus.running)
+    db_session.add(run)
+    db_session.commit()
+
+    resp = client.get(f"/api/sessions/{session_id}/report")
+    assert resp.status_code == 409
+    assert "currently running" in resp.json()["detail"].lower()
+
+
 def test_quality_check_scoring(db_session, client):
     from app.workflow.nodes import quality_check
     from app.models.session import ResearchSession

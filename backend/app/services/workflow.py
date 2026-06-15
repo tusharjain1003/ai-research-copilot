@@ -23,6 +23,24 @@ from app.workflow.state import GraphState
 logger = logging.getLogger(__name__)
 
 
+def check_no_active_run(db: DBSession, session_id: str) -> None:
+    """Raise 409 if the latest WorkflowRun for the session is pending/running."""
+    run = (
+        db.query(WorkflowRun)
+        .filter(WorkflowRun.session_id == session_id)
+        .order_by(WorkflowRun.created_at.desc())
+        .first()
+    )
+    if run and run.status in (WorkflowRunStatus.pending, WorkflowRunStatus.running):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "Research is currently running. "
+                "Please wait until the workflow completes."
+            ),
+        )
+
+
 class WorkflowService:
 
     @staticmethod
@@ -114,6 +132,7 @@ class WorkflowService:
     @staticmethod
     def get_report(db: DBSession, session_id: str) -> ReportResponse:
         WorkflowService._get_session_or_404(db, session_id)
+        check_no_active_run(db, session_id)
 
         report = (
             db.query(ResearchReport)

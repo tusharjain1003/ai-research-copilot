@@ -12,6 +12,7 @@ from app.models.source import ResearchSource
 from app.models.workflow import WorkflowRun, WorkflowStep
 from app.schemas.chat import ChatHistoryResponse, ChatMessageResponse
 from app.services.llm import LLMService, LLMError, LLMConfigurationError
+from app.services.workflow import check_no_active_run
 
 logger = logging.getLogger(__name__)
 
@@ -219,6 +220,7 @@ class ChatService:
     @staticmethod
     def send_message(db: DBSession, session_id: str, text: str) -> ChatMessageResponse:
         session = _get_or_404(db, session_id)
+        check_no_active_run(db, session_id)
 
         report = (
             db.query(ResearchReport)
